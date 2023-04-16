@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"time"
 
@@ -22,6 +23,8 @@ func run() {
 		kgo.DefaultProduceTopic("beat-output"),
 		kgo.ConsumerGroup("my-group-identifier"),
 		kgo.ConsumeTopics("beat-output"),
+		kgo.BlockRebalanceOnPoll(),
+		kgo.WithLogger(kgo.BasicLogger(os.Stderr, kgo.LogLevelWarn, nil)),
 	)
 	if err != nil {
 		panic(err)
@@ -72,18 +75,20 @@ func run() {
 		recordmap = append(recordmap, record)
 	}
 
-	if err := cl.ProduceSync(ctx, recordmap...).FirstErr(); err != nil {
-		fmt.Printf("record had a produce error while synchronously producing: %v\n", err)
-	}
+	// if err := cl.ProduceSync(ctx, recordmap...).FirstErr(); err != nil {
+	// 	fmt.Printf("record had a produce error while synchronously producing: %v\n", err)
+	// }
 
 	t4 := time.Now()
 	fmt.Println(t4.Sub(t3))
 
 	fmt.Println("Consume messages...")
 	// 2.) Consuming messages from a topic
+	counter := 0
 	for {
 		t10 := time.Now()
 		fetches := cl.PollFetches(ctx)
+
 		if errs := fetches.Errors(); len(errs) > 0 {
 			// All errors are retried internally when fetching, but non-retriable errors are
 			// returned from polls so that users can notice and take action.
@@ -91,13 +96,25 @@ func run() {
 		}
 
 		// We can iterate through a record iterator...
-		iter := fetches.RecordIter()
-		for !iter.Done() {
-			record := iter.Next()
-			fmt.Println(string(record.Value), "from an iterator!")
+		// iter := fetches.RecordIter()
+		// for !iter.Done() {
+		// 	record := iter.Next()
+		// 	_ = record
+		// 	counter++
+		// }
+
+		fetches.EachRecord(func(*kgo.Record) {
+			counter++
+		})
+		if err := cl.CommitUncommittedOffsets(context.Background()); err != nil {
+			fmt.Printf("commit records failed: %v", err)
+			continue
 		}
+
 		t11 := time.Now()
 		fmt.Println(t11.Sub(t10))
+		fmt.Printf("consumed records: %d\n", counter)
+
 		// or a callback function.
 		// fetches.EachPartition(func(p kgo.FetchTopicPartition) {
 		// 	for _, record := range p.Records {
