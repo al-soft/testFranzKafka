@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"time"
 
@@ -11,7 +10,8 @@ import (
 )
 
 func main() {
-	run()
+	// run()
+	RunConsume()
 }
 
 func run() {
@@ -20,11 +20,8 @@ func run() {
 	// Consuming can either be direct (no consumer group), or through a group. Below, we use a group.
 	cl, err := kgo.NewClient(
 		kgo.SeedBrokers(seeds...),
-		kgo.DefaultProduceTopic("beat-output"),
 		kgo.ConsumerGroup("my-group-identifier"),
 		kgo.ConsumeTopics("beat-output"),
-		kgo.BlockRebalanceOnPoll(),
-		kgo.WithLogger(kgo.BasicLogger(os.Stderr, kgo.LogLevelWarn, nil)),
 	)
 	if err != nil {
 		panic(err)
@@ -83,48 +80,24 @@ func run() {
 	fmt.Println(t4.Sub(t3))
 
 	fmt.Println("Consume messages...")
-	// 2.) Consuming messages from a topic
-	counter := 0
 	for {
 		t10 := time.Now()
 		fetches := cl.PollFetches(ctx)
-
 		if errs := fetches.Errors(); len(errs) > 0 {
 			// All errors are retried internally when fetching, but non-retriable errors are
 			// returned from polls so that users can notice and take action.
 			panic(fmt.Sprint(errs))
 		}
+		fmt.Println("Количество записей ", fetches.NumRecords())
 
 		// We can iterate through a record iterator...
-		// iter := fetches.RecordIter()
-		// for !iter.Done() {
-		// 	record := iter.Next()
-		// 	_ = record
-		// 	counter++
-		// }
-
-		fetches.EachRecord(func(*kgo.Record) {
-			counter++
-		})
-		if err := cl.CommitUncommittedOffsets(context.Background()); err != nil {
-			fmt.Printf("commit records failed: %v", err)
-			continue
+		iter := fetches.RecordIter()
+		for !iter.Done() {
+			record := iter.Next()
+			_ = record
 		}
-
 		t11 := time.Now()
 		fmt.Println(t11.Sub(t10))
-		fmt.Printf("consumed records: %d\n", counter)
 
-		// or a callback function.
-		// fetches.EachPartition(func(p kgo.FetchTopicPartition) {
-		// 	for _, record := range p.Records {
-		// 		fmt.Println(string(record.Value), "from range inside a callback!")
-		// 	}
-
-		// 	// We can even use a second callback!
-		// 	p.EachRecord(func(record *kgo.Record) {
-		// 		fmt.Println(string(record.Value), "from a second callback!")
-		// 	})
-		// })
 	}
 }
